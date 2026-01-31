@@ -511,12 +511,9 @@ def comprehensive_test():
             print(f"     {video_name}: {error:.6f}")
     
     # ========================================================================
-    # VISUALIZATION
+    # VISUALIZATION - CLEAN AND ORGANIZED
     # ========================================================================
     print("\n\n5. Creating comprehensive visualization...")
-    
-    fig = plt.figure(figsize=(18, 12))
-    gs = fig.add_gridspec(3, 3, hspace=0.3, wspace=0.3)
     
     # Get final performance for each model
     final_performance = {}
@@ -526,94 +523,92 @@ def comprehensive_test():
             errors.append(evaluate_model(model, video))
         final_performance[model_name] = errors
     
-    # Plot 1: Bar chart comparing final performance
+    fig = plt.figure(figsize=(16, 10))
+    gs = fig.add_gridspec(2, 2, hspace=0.35, wspace=0.3)
+    
+    # ===== PLOT 1: Overall Performance Comparison (Main) =====
     ax1 = fig.add_subplot(gs[0, :])
-    x = np.arange(len(models))
+    
+    model_list = list(models.keys())
+    x = np.arange(len(model_list))
     width = 0.25
     
     for i, video_name in enumerate(video_names):
-        values = [final_performance[model][i] for model in models.keys()]
-        ax1.bar(x + (i - 1) * width, values, width, label=video_name, alpha=0.8)
+        values = [final_performance[model][i] for model in model_list]
+        ax1.bar(x + (i - 1) * width, values, width, label=video_name, alpha=0.85, edgecolor='black', linewidth=0.5)
     
     ax1.set_ylabel('Prediction Error', fontweight='bold', fontsize=12)
-    ax1.set_title('Final Performance: All Models on All Videos', fontweight='bold', fontsize=14)
+    ax1.set_title('Performance on Each Video Type Across All Models', fontweight='bold', fontsize=13)
     ax1.set_xticks(x)
-    ax1.set_xticklabels(models.keys(), rotation=15, ha='right')
-    ax1.legend(loc='upper left')
+    ax1.set_xticklabels(model_list, fontsize=11)
+    ax1.legend(fontsize=11, loc='upper left')
     ax1.grid(True, alpha=0.3, axis='y')
     
-    # Plot 2: Total cumulative error
+    # ===== PLOT 2: Total Cumulative Error (Bottom Left) =====
     ax2 = fig.add_subplot(gs[1, 0])
-    total_errors = [sum(final_performance[model]) for model in models.keys()]
-    colors = ['#2ecc71' if e == min(total_errors) else '#e74c3c' if e == max(total_errors) else '#3498db' 
-              for e in total_errors]
-    bars = ax2.bar(range(len(models)), total_errors, color=colors, alpha=0.7, width=0.6)
-    ax2.set_ylabel('Total Cumulative Error', fontweight='bold')
-    ax2.set_title('Overall Continual Learning Score\n(Lower = Better)', fontweight='bold')
-    ax2.set_xticks(range(len(models)))
-    ax2.set_xticklabels([m.replace(' + ', '\n+\n') for m in models.keys()], fontsize=9)
+    
+    total_errors = [sum(final_performance[model]) for model in model_list]
+    winner_idx = np.argmin(total_errors)
+    
+    colors = ['#2ecc71' if i == winner_idx else '#e74c3c' if i == np.argmax(total_errors) else '#3498db' 
+              for i in range(len(model_list))]
+    
+    bars = ax2.bar(range(len(model_list)), total_errors, color=colors, alpha=0.8, edgecolor='black', linewidth=1.5)
+    
+    ax2.set_ylabel('Total Cumulative Error', fontweight='bold', fontsize=11)
+    ax2.set_title('Overall Score (All Videos Combined)', fontweight='bold', fontsize=12)
+    ax2.set_xticks(range(len(model_list)))
+    ax2.set_xticklabels(model_list, rotation=15, ha='right', fontsize=10)
     ax2.grid(True, alpha=0.3, axis='y')
     
+    # Add value labels
     for i, (bar, val) in enumerate(zip(bars, total_errors)):
-        ax2.text(bar.get_x() + bar.get_width()/2, val + 0.01, f'{val:.4f}', 
-                ha='center', fontsize=10, fontweight='bold')
+        height = bar.get_height()
+        ax2.text(bar.get_x() + bar.get_width()/2., height,
+                f'{val:.4f}', ha='center', va='bottom', fontweight='bold', fontsize=10)
     
-    # Plot 3: Forgetting analysis
+    # ===== PLOT 3: Forgetting Analysis (Bottom Right) =====
     ax3 = fig.add_subplot(gs[1, 1])
     
-    # Measure forgetting: change in V1 error after learning V2 and V3
-    forgetting_data = {}
+    forgetting_data = []
+    model_names_short = []
+    
     for model_name, model in models.items():
-        v1_initial = evaluate_model(model, video1)
-        # After training on V2 and V3, check V1 again
-        forgetting = final_performance[model_name][0] - v1_initial
-        forgetting_data[model_name] = forgetting * 100  # percentage
-    
-    colors_forget = ['#2ecc71' if f < 0 else '#e74c3c' for f in forgetting_data.values()]
-    ax3.barh(range(len(forgetting_data)), list(forgetting_data.values()), color=colors_forget, alpha=0.7)
-    ax3.axvline(x=0, color='black', linestyle='--', linewidth=2)
-    ax3.set_yticks(range(len(forgetting_data)))
-    ax3.set_yticklabels([m.replace(' + ', '\n+\n') for m in forgetting_data.keys()], fontsize=9)
-    ax3.set_xlabel('Memory Change (%)', fontweight='bold')
-    ax3.set_title('Catastrophic Forgetting Analysis\n(Negative = Better Memory)', fontweight='bold')
-    ax3.grid(True, alpha=0.3, axis='x')
-    
-    for i, (name, val) in enumerate(forgetting_data.items()):
-        ax3.text(val + (2 if val > 0 else -2), i, f'{val:+.1f}%', va='center', 
-                ha='left' if val > 0 else 'right', fontweight='bold', fontsize=10)
-    
-    # Plot 4: Summary table
-    ax4 = fig.add_subplot(gs[1, 2])
-    ax4.axis('off')
-    
-    summary_text = "SUMMARY STATISTICS\n" + "="*40 + "\n\n"
-    for model_name in models.keys():
-        total = sum(final_performance[model_name])
-        avg = total / len(final_performance[model_name])
-        summary_text += f"{model_name}\n"
-        summary_text += f"  Total: {total:.5f}\n"
-        summary_text += f"  Avg:   {avg:.5f}\n\n"
-    
-    ax4.text(0.05, 0.95, summary_text, transform=ax4.transAxes, fontfamily='monospace',
-            fontsize=9, verticalalignment='top',
-            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
-    
-    # Plot 5-7: Individual video performance
-    for idx, (video_name, video) in enumerate(zip(video_names, videos)):
-        ax = fig.add_subplot(gs[2, idx])
+        # Get V1 error at the end
+        forgetting = final_performance[model_name][0]
+        forgetting_data.append(forgetting)
         
-        model_names_short = [m.split('+')[0].strip() + '\n' + m.split('+')[1].strip() for m in models.keys()]
-        errors = [final_performance[m][idx] for m in models.keys()]
-        colors_perf = ['#2ecc71' if e == min(errors) else '#e74c3c' for e in errors]
-        
-        ax.bar(range(len(errors)), errors, color=colors_perf, alpha=0.7, width=0.6)
-        ax.set_ylabel('Error', fontweight='bold')
-        ax.set_title(f'{video_name}\nFinal Error', fontweight='bold')
-        ax.set_xticks(range(len(models)))
-        ax.set_xticklabels(model_names_short, fontsize=8)
-        ax.grid(True, alpha=0.3, axis='y')
+        # Shorten name
+        if 'Hebbian' in model_name and 'Dynamic' in model_name:
+            model_names_short.append('Hebb\n+Dyn')
+        elif 'Hebbian' in model_name and 'Static' in model_name:
+            model_names_short.append('Hebb\n+Stat')
+        elif 'Backprop' in model_name and 'Dynamic' in model_name:
+            model_names_short.append('BP\n+Dyn')
+        else:
+            model_names_short.append('BP\n+Stat')
     
-    plt.suptitle('COMPREHENSIVE CONTINUAL LEARNING BENCHMARK', fontsize=16, fontweight='bold', y=0.995)
+    colors_forget = ['#2ecc71' if e == min(forgetting_data) else '#e74c3c' 
+                     for e in forgetting_data]
+    
+    bars_forget = ax3.bar(range(len(forgetting_data)), forgetting_data, 
+                          color=colors_forget, alpha=0.8, edgecolor='black', linewidth=1.5)
+    
+    ax3.set_ylabel('Video 1 Error (After Training All)', fontweight='bold', fontsize=11)
+    ax3.set_title('Memory Retention on First Task', fontweight='bold', fontsize=12)
+    ax3.set_xticks(range(len(forgetting_data)))
+    ax3.set_xticklabels(model_names_short, fontsize=10)
+    ax3.grid(True, alpha=0.3, axis='y')
+    
+    # Add value labels
+    for i, (bar, val) in enumerate(zip(bars_forget, forgetting_data)):
+        height = bar.get_height()
+        ax3.text(bar.get_x() + bar.get_width()/2., height,
+                f'{val:.5f}', ha='center', va='bottom', fontweight='bold', fontsize=9)
+    
+    plt.suptitle('COMPREHENSIVE CONTINUAL LEARNING TEST\nHebbian vs Backprop | Dynamic vs Static | 3 Different Tasks', 
+                 fontsize=14, fontweight='bold', y=0.995)
+    
     plt.savefig('comprehensive_comparison.png', dpi=100, bbox_inches='tight')
     print("   ✓ Saved: comprehensive_comparison.png")
     
