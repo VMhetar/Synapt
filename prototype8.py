@@ -322,7 +322,7 @@ def ultimate_comparison_test():
                 num_batches += 1
             
             avg_loss = epoch_loss / num_batches
-            training_losses[model_name].append(avg_loss)
+            training_losses[model_name].append(float(avg_loss))
             
             if (epoch + 1) % 10 == 0:
                 print(f"     Epoch {epoch + 1}: {avg_loss:.6f}")
