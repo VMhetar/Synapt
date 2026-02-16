@@ -53,3 +53,83 @@ class SituationDecoder(nn.Module):
         frame = self.spatial_decode(x)
         return frame
 
+# ============================================================================
+# BAYESIAN CONFIDENCE SCORING FOR HEBBIAN
+# ============================================================================
+
+class BayesianConfidenceScorer:
+    """
+    Apply Bayes theorem to Hebbian learning.
+    
+    Bayes: P(model|data) ∝ P(data|model) * P(model)
+    
+    In Hebbian context:
+    - Likelihood: How well did prediction match reality?
+    - Prior: How confident were we before?
+    - Posterior: How much should we update?
+    
+    Confidence scoring weights Hebbian updates by how reliable they are.
+    """
+    
+    def __init__(self, prior_confidence=0.5, smoothing=0.1):
+        """
+        Args:
+            prior_confidence: Initial belief in our model (0-1)
+            smoothing: How much to smooth confidence updates
+        """
+        self.prior_confidence = prior_confidence
+        self.smoothing = smoothing
+        self.confidence_history = []
+    
+    def compute_likelihood(self, prediction_error):
+        """
+        Likelihood: P(data|model)
+        
+        Lower error = higher likelihood that our model is correct
+        Uses exponential decay: likelihood = exp(-error)
+        """
+        # Clamp error for stability
+        error_clamped = torch.clamp(prediction_error, min=0, max=10)
+        likelihood = torch.exp(-error_clamped)
+        return likelihood
+    
+    def update_confidence(self, likelihood, prior):
+        """
+        Bayes update: posterior ∝ likelihood * prior
+        
+        P(model_is_good | prediction_error) = P(error | good_model) * P(good_model) / P(error)
+        
+        Simplified: posterior = likelihood * prior (unnormalized)
+        """
+        posterior = likelihood * prior
+        
+        # Normalize and smooth
+        posterior = torch.clamp(posterior, min=0, max=1)
+        posterior = prior * (1 - self.smoothing) + posterior * self.smoothing
+        
+        self.confidence_history.append(posterior.item() if hasattr(posterior, 'item') else float(posterior))
+        
+        return posterior
+    
+    def compute_update_weight(self, confidence):
+        """
+        Weight Hebbian updates by confidence.
+        
+        High confidence = trust the Hebbian update more
+        Low confidence = be conservative
+        
+        Returns weight in [0, 1]
+        """
+        return torch.clamp(confidence, min=0, max=1)
+    
+    def step(self, prediction_error, current_confidence):
+        """
+        Single Bayesian update step.
+        
+        Returns: new_confidence, update_weight
+        """
+        likelihood = self.compute_likelihood(prediction_error)
+        new_confidence = self.update_confidence(likelihood, current_confidence)
+        update_weight = self.compute_update_weight(new_confidence)
+        
+        return new_confidence, update_weight
