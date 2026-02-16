@@ -133,3 +133,78 @@ class BayesianConfidenceScorer:
         update_weight = self.compute_update_weight(new_confidence)
         
         return new_confidence, update_weight
+
+# ============================================================================
+# HEBBIAN MODELS WITH BAYESIAN CONFIDENCE
+# ============================================================================
+
+class HebbianDynamicConfidence(nn.Module):
+    """Hebbian + Dynamic + Bayesian Confidence Scoring."""
+    def __init__(self, learning_rate=0.01):
+        super().__init__()
+        self.encoder = SituationEncoder(hidden_dim=64)
+        self.decoder = SituationDecoder(situation_dim=64)
+        
+        self.W_dynamics = nn.Parameter(torch.randn(64, 128) * 0.01)
+        self.W_predict = nn.Parameter(torch.randn(128, 64) * 0.01)
+        
+        self.learning_rate = learning_rate
+        self.consolidation_mask = torch.ones(128)
+        
+        # Bayesian confidence scorer
+        self.confidence_scorer = BayesianConfidenceScorer(prior_confidence=0.5, smoothing=0.1)
+        self.confidence = torch.tensor(0.5)  # Initial confidence
+        
+        self.update_weights_history = []
+    
+    def forward(self, frame):
+        situation = self.encoder(frame)
+        hidden = torch.matmul(situation.unsqueeze(0), self.W_dynamics).squeeze(0)
+        hidden = torch.relu(hidden)
+        pred_situation = torch.matmul(hidden.unsqueeze(0), self.W_predict).squeeze(0)
+        return situation, pred_situation, hidden
+    
+    def hebbian_update_with_confidence(self, situation, hidden, target_situation):
+        """
+        Hebbian update weighted by Bayesian confidence.
+        
+        Key insight: Only update strongly when we're confident in our model.
+        """
+        pred_situation = torch.matmul(hidden.unsqueeze(0), self.W_predict).squeeze(0)
+        error = target_situation - pred_situation
+        mse = torch.mean(error ** 2)
+        
+        # Compute Bayesian confidence
+        self.confidence, update_weight = self.confidence_scorer.step(mse, self.confidence)
+        self.update_weights_history.append(update_weight.item())
+        
+        # Handle tensor dimensions
+        if situation.dim() > 1:
+            situation = situation.squeeze(0)
+        if hidden.dim() > 1:
+            hidden = hidden.squeeze(0)
+        if error.dim() > 1:
+            error = error.squeeze(0)
+        
+        # Compute Hebbian updates
+        dW_dynamics = torch.outer(situation, hidden)
+        dW_predict = torch.outer(hidden, error)
+        
+        # Weight updates by confidence
+        dW_dynamics = dW_dynamics * update_weight
+        dW_predict = dW_predict * update_weight
+        
+        # Apply with consolidation
+        consolidation_factor = self.consolidation_mask.unsqueeze(0)
+        self.W_dynamics.data += self.learning_rate * dW_dynamics * consolidation_factor
+        self.W_predict.data += self.learning_rate * dW_predict * consolidation_factor.T
+        
+        return mse
+    
+    def predict_next_situation(self, situation):
+        """Predict next situation from current."""
+        hidden = torch.matmul(situation.unsqueeze(0), self.W_dynamics).squeeze(0)
+        hidden = torch.relu(hidden)
+        pred = torch.matmul(hidden.unsqueeze(0), self.W_predict).squeeze(0)
+        return pred
+
